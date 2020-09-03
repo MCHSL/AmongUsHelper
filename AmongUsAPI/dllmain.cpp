@@ -7,96 +7,117 @@
 #include <windows.h>
 #include "sigscan/sigscan.h"
 #include "subhook/subhook.h"
+#include "kiero.h"
+#include "imgui_group_panel.hpp"
 
-#include <d3d9.h>
+#include <d3d11.h>
+#define DIRECTINPUT_VERSION 0x0800
+#include <dinput.h>
 #include <tchar.h>
 
 
-#include "imgui_impl_dx9.h"
+#include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
-#define DIRECTINPUT_VERSION 0x0800
 
-// Data
-static LPDIRECT3D9              g_pD3D = NULL;
-static LPDIRECT3DDEVICE9        g_pd3dDevice = NULL;
-static D3DPRESENT_PARAMETERS    g_d3dpp = {};
-
-// Forward declarations of helper functions
-bool CreateDeviceD3D(HWND hWnd);
-void CleanupDeviceD3D();
-void ResetDevice();
-LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-bool CreateDeviceD3D(HWND hWnd)
-{
-    if ((g_pD3D = Direct3DCreate9(D3D_SDK_VERSION)) == NULL)
-        return false;
-
-    // Create the D3DDevice
-    ZeroMemory(&g_d3dpp, sizeof(g_d3dpp));
-    g_d3dpp.Windowed = TRUE;
-    g_d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
-    g_d3dpp.BackBufferFormat = D3DFMT_UNKNOWN;
-    g_d3dpp.EnableAutoDepthStencil = TRUE;
-    g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
-    g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;           // Present with vsync
-    //g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;   // Present without vsync, maximum unthrottled framerate
-    if (g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
-        return false;
-
-    return true;
-}
-
-void CleanupDeviceD3D()
-{
-    if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = NULL; }
-    if (g_pD3D) { g_pD3D->Release(); g_pD3D = NULL; }
-}
-
-void ResetDevice()
-{
-    ImGui_ImplDX9_InvalidateDeviceObjects();
-    HRESULT hr = g_pd3dDevice->Reset(&g_d3dpp);
-    if (hr == D3DERR_INVALIDCALL)
-        IM_ASSERT(0);
-    ImGui_ImplDX9_CreateDeviceObjects();
-}
-
-// Forward declare message handler from imgui_impl_win32.cpp
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-// Win32 message handler
-LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
-        return true;
-
-    switch (msg)
-    {
-    case WM_SIZE:
-        if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
-        {
-            g_d3dpp.BackBufferWidth = LOWORD(lParam);
-            g_d3dpp.BackBufferHeight = HIWORD(lParam);
-            ResetDevice();
-        }
-        return 0;
-    case WM_SYSCOMMAND:
-        if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
-            return 0;
-        break;
-    case WM_DESTROY:
-        ::PostQuitMessage(0);
-        return 0;
-    }
-    return ::DefWindowProc(hWnd, msg, wParam, lParam);
-}
+typedef long(__stdcall* Present)(IDXGISwapChain*, UINT, UINT);
+static Present oPresent = NULL;
 
 std::map<void*, std::unique_ptr<subhook::Hook>> hooks;
 
+struct __declspec(align(4)) ClientData__Fields
+{
+    int32_t Id;
+    bool InScene;
+    bool IsReady;
+    void* Character;
+};
+
+struct ClientData
+{
+    void* klass;
+    void* monitor;
+    struct ClientData__Fields fields;
+};
+
+struct PlayerControl__Fields
+{
+    void* _;
+    int32_t LastStartCounter;
+    uint8_t PlayerId;
+    /*float MaxReportDistance;
+    bool moveable;
+    bool inVent;
+    struct GameData_PlayerInfo* _cachedData;
+    struct AudioSource* FootSteps;
+    struct AudioClip* KillSfx;
+    struct KillAnimation__Array* KillAnimations;
+    float killTimer;
+    int32_t RemainingEmergencies;
+    struct TextRenderer* nameText;
+    struct LightSource* LightPrefab;
+    struct LightSource* myLight;
+    struct Collider2D* Collider;
+    struct PlayerPhysics* MyPhysics;
+    struct CustomNetworkTransform* NetTransform;
+    struct PetBehaviour* CurrentPet;
+    struct HatParent* HatRenderer;
+    struct SpriteRenderer* myRend;
+    struct Collider2D__Array* hitBuffer;
+    struct List_1_PlayerTask_* myTasks;
+    struct SpriteAnim__Array* ScannerAnims;
+    struct SpriteRenderer__Array* ScannersImages;
+    struct IUsable* closest;
+    bool isNew;
+    struct Dictionary_2_UnityEngine_Collider2D_IUsable_* cache;
+    struct List_1_IUsable_* itemsInRange;
+    struct List_1_IUsable_* newItemsInRange;
+    uint8_t scannerCount;
+    bool infectedSet;*/
+};
+
+struct PlayerControl
+{
+    void* klass;
+    void* monitor;
+    struct PlayerControl__Fields fields;
+};
+
+struct __declspec(align(4)) GameData_PlayerInfo__Fields
+{
+    uint8_t PlayerId;
+    void* PlayerName;
+    uint8_t ColorId;
+    uint32_t HatId;
+    uint32_t PetId;
+    uint32_t SkinId;
+    bool Disconnected;
+    struct List_1_GameData_TaskInfo_* Tasks;
+    bool IsImpostor;
+    bool IsDead;
+    struct PlayerControl* _object;
+};
+
+struct GameData_PlayerInfo
+{
+    void* klass;
+    void* monitor;
+    struct GameData_PlayerInfo__Fields fields;
+};
+
 typedef void(*SetPlayerColorPtr)(void* something, unsigned char id, unsigned char color);
+typedef void(*OnPlayerDisconnectPtr)(void* something, ClientData* cdata, unsigned int reason);
+typedef GameData_PlayerInfo*(*GetPlayerInfoByIdPtr)(void* GameData, unsigned char id);
+typedef void(*MurderPlayerPtr)(PlayerControl* me, PlayerControl* target);
+typedef void(*RevivePtr)(PlayerControl* _this);
+typedef PlayerControl* (*GetPlayerControl)(GameData_PlayerInfo* _this);
+
+void* GameData;
 
 SetPlayerColorPtr oSetPlayerColor;
+OnPlayerDisconnectPtr oOnPlayerDisconnect;
+GetPlayerInfoByIdPtr oGetPlayerInfoById;
+MurderPlayerPtr oMurderPlayer;
+RevivePtr oRevive;
 
 void* untyped_install_hook(void* original, void* hook)
 {
@@ -123,44 +144,95 @@ enum class Color : unsigned char
 	LIME
 };
 
-std::map<unsigned char, Color> player_colors;
 
-std::string cid2color(Color color_id)
+enum TrustStatus
+{
+    TRUSTED,
+    PLAUSIBLE,
+    NEUTRAL,
+    SUSPICIOUS,
+    IMPOSTOR,
+};
+
+struct PlayerInfo
+{
+    Color color;
+    TrustStatus trust = NEUTRAL;
+};
+
+std::map<unsigned char, PlayerInfo> players;
+
+const char* cid2text(Color color_id)
 {
 	switch(color_id)
 	{
     case Color::RED:
-        return "red";
+        return "RED";
     case Color::BLUE:
-        return "blue";
+        return "BLUE";
     case Color::GREEN:
-        return "green";
+        return "GREEN";
     case Color::PINK:
-        return "pink";
+        return "PINK";
     case Color::ORANGE:
-        return "orange";
+        return "ORANGE";
     case Color::YELLOW:
-        return "yellow";
+        return "YELLOW";
     case Color::BLACK:
-        return "black";
+        return "BLACK";
     case Color::WHITE:
-        return "white";
+        return "WHITE";
     case Color::PURPLE:
-        return "purple";
+        return "PURPLE";
     case Color::BROWN:
-        return "brown";
+        return "BROWN";
     case Color::CYAN:
-        return "cyan";
+        return "CYAN";
     case Color::LIME:
-        return "lime";
+        return "LIME";
     default:
-        return "unknown";
+        return "UNKNOWN";
 	}
 }
 
+ImVec4 cid2color(Color cid)
+{
+    switch (cid)
+    {
+    case Color::RED:
+        return {0xc6/255.0, 0x11/255.0, 0x11/255.0, 0.45};
+    case Color::BLUE:
+        return { 0x13 / 255.0, 0x2e / 255.0, 0xd2 / 255.0, 0.45 };;
+    case Color::GREEN:
+        return { 0x11 / 255.0, 0x80 / 255.0, 0x2d / 255.0, 0.45 };;
+    case Color::PINK:
+        return { 0xee / 255.0, 0x54 / 255.0, 0xbb / 255.0, 0.45 };;
+    case Color::ORANGE:
+        return { 0xf0 / 255.0, 0x7d / 255.0, 0x0d / 255.0, 0.45 };;
+    case Color::YELLOW:
+        return { 0xf6 / 255.0, 0xf6 / 255.0, 0x57 / 255.0, 0.45 };;
+    case Color::BLACK:
+        return { 0x3f / 255.0, 0x47 / 255.0, 0x4e / 255.0, 0.45 };;
+    case Color::WHITE:
+        return { 0xd7 / 255.0, 0xe1 / 255.0, 0xf1 / 255.0, 0.45 };;
+    case Color::PURPLE:
+        return { 0x6b / 255.0, 0x2f / 255.0, 0xbc / 255.0, 0.45 };;
+    case Color::BROWN:
+        return { 0x79 / 255.0, 0x49 / 255.0, 0x1e / 255.0, 0.45 };;
+    case Color::CYAN:
+        return { 0x38 / 255.0, 0xff / 255.0, 0xdd / 255.0, 0.45 };;
+    case Color::LIME:
+        return { 0x50 / 255.0, 0xf0 / 255.0, 0x39 / 255.0, 0.45 };;
+    default:
+        return {0, 0, 0, 0};
+    }
+}
+
+
 void hSetPlayerColor(void* something, unsigned char player_id, unsigned char color)
 {
-    player_colors[player_id] = (Color)color;
+    GameData = something;
+    players[player_id].color = (Color)color;
     oSetPlayerColor(something, player_id, color);
 }
 
@@ -170,129 +242,157 @@ FnPtr install_hook(FnPtr original, FnPtr hook)
     return (FnPtr)untyped_install_hook((void*)original, (void*)hook);
 }
 
+bool fart = true;
+
+ID3D11DeviceContext* context;
+
+ID3D11RenderTargetView* g_mainRenderTargetView;
+
+extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+static WNDPROC OriginalWndProcHandler = nullptr;
+HWND window = nullptr;
+
+bool IsKeyPressed(unsigned char key)
+{
+    return GetAsyncKeyState(key) & 0x8000;
+}
+
+LRESULT WINAPI hWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	if(IsKeyPressed(VK_F1))
+	{
+        ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam);
+        return true;
+	}
+		
+	return CallWindowProc(OriginalWndProcHandler, hWnd, msg, wParam, lParam);
+}
+
+bool show_status = false;
+
+long __stdcall hkPresent11(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags)
+{
+    static bool init = false;
+
+    if (!init)
+    {
+        DXGI_SWAP_CHAIN_DESC desc;
+        pSwapChain->GetDesc(&desc);
+
+        ID3D11Device* device;
+        pSwapChain->GetDevice(__uuidof(ID3D11Device), (void**)&device);
+
+        device->GetImmediateContext(&context);
+
+        ID3D11Texture2D* pBackBuffer;
+        pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
+        device->CreateRenderTargetView(pBackBuffer, NULL, &g_mainRenderTargetView);
+        pBackBuffer->Release();
+
+        ImGui::CreateContext();
+        ImGui::StyleColorsDark();
+        ImGui_ImplWin32_Init(desc.OutputWindow);
+        window = desc.OutputWindow;
+        OriginalWndProcHandler = (WNDPROC)SetWindowLongPtr(window, GWL_WNDPROC, (LONG_PTR)hWndProc);
+        ImGui_ImplDX11_Init(device, context);
+
+        init = true;
+    }
+
+    if (!IsKeyPressed(VK_F1))
+    {
+        return oPresent(pSwapChain, SyncInterval, Flags);
+    }
+
+    ImGui_ImplDX11_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::Begin("People of color");
+
+    for (auto& [id, info] : players)
+    {
+        ImGui::PushID(id + 1);
+        ImGui::PushStyleColor(ImGuiCol_Border, cid2color(info.color));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, cid2color(info.color));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, cid2color(info.color));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, cid2color(info.color));
+        ImGui::BeginGroupPanel(cid2text(info.color), {-1, -1});
+        ImGui::RadioButton("Trusted", (int*)&info.trust, TRUSTED); ImGui::SameLine();
+        ImGui::RadioButton("Plausible", (int*)&info.trust, PLAUSIBLE); ImGui::SameLine();
+        ImGui::RadioButton("Neutral", (int*)&info.trust, NEUTRAL); ImGui::SameLine();
+        ImGui::RadioButton("Suspicious", (int*)&info.trust, SUSPICIOUS); ImGui::SameLine();
+        ImGui::RadioButton("Impostor", (int*)&info.trust, IMPOSTOR);
+        if(ImGui::Button("Remove"))
+        {
+            players.erase(id);
+            break;
+        } ImGui::SameLine();
+        if (ImGui::Button("Revive"))
+        {
+            oRevive(oGetPlayerInfoById(GameData, id)->fields._object);
+            break;
+        }
+        ImGui::EndGroupPanel();
+        ImGui::PopStyleColor(4);
+        ImGui::PopID();
+    }
+	if(ImGui::Button("Clear"))
+	{
+        players.clear();
+	}
+    ImGui::Checkbox("Cheat?", &show_status);
+	if(GameData && show_status)
+	{
+        ImGui::Text("Impostors:");
+		for(int i=0; i<10; i++)
+		{
+            GameData_PlayerInfo* info = oGetPlayerInfoById(GameData, i);
+			if(!info)
+			{
+                break;
+			}
+			if(info->fields.IsImpostor)
+			{
+                ImGui::Text(cid2text((Color)info->fields.ColorId));
+			}
+		}
+		if(ImGui::Button("kys"))
+		{
+            PlayerControl* first = oGetPlayerInfoById(GameData, 0)->fields._object;
+            oMurderPlayer(first, first);
+		}
+	}
+    ImGui::End();
+
+    ImGui::EndFrame();
+    ImGui::Render();
+
+    context->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
+
+    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+    return oPresent(pSwapChain, SyncInterval, Flags);
+}
+
+/*void hRemovePlayer(void* GameData, unsigned char id)
+{
+    const char* col = cid2text(players.at(id).color);
+    MessageBoxA(NULL, col, "wew", NULL);
+    oGameData_RemovePlayer(GameData, id);
+}*/
+
 void amain()
 {
     const auto SetPlayerColor = (SetPlayerColorPtr)Pocket::Sigscan::FindPattern("gameassembly.dll", "55 8B EC 53 8B 5D 0C 6A 00 53 FF 75 08 E8 ?? ?? ?? ?? 83 C4 0C 85 C0 74 06 8A 4D 10 88 48 10 0F B6 CB B8");
+    oGetPlayerInfoById = (GetPlayerInfoByIdPtr)Pocket::Sigscan::FindPattern("gameassembly.dll", "55 8B EC 80 3D ?? ?? ?? ?? ?? 75 15 FF 35 ?? ?? ?? ?? E8 ?? ?? ?? ?? 83 C4 04 C6 05 ?? ?? ?? ?? ?? 8A 55 0C 53 56 57 80 FA FF 74 6B 8B 45 08 33 FF 33 C9 8B 40 24 85 C0 74 64 8B F0 8D 5F 10 90 3B 48 0C");
     oSetPlayerColor = (SetPlayerColorPtr)install_hook(SetPlayerColor, hSetPlayerColor);
+    oMurderPlayer = (MurderPlayerPtr)((unsigned int)GetModuleHandleA("gameassembly.dll") + 0x261AC0);
+    oRevive = (RevivePtr)((unsigned int)GetModuleHandleA("gameassembly.dll") + 0x262E20);
 
-    // Create application window
-   //ImGui_ImplWin32_EnableDpiAwareness();
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, _T("ImGui Example"), NULL };
-    ::RegisterClassEx(&wc);
-    HWND hwnd = ::CreateWindow(wc.lpszClassName, _T("yeet this shit"), WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, NULL, NULL, wc.hInstance, NULL);
-
-    // Initialize Direct3D
-    if (!CreateDeviceD3D(hwnd))
-    {
-        CleanupDeviceD3D();
-        ::UnregisterClass(wc.lpszClassName, wc.hInstance);
-        return;
-    }
-
-    // Show the window
-    ::ShowWindow(hwnd, SW_SHOWDEFAULT);
-    ::UpdateWindow(hwnd);
-
-    // Setup Dear ImGui context
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-    //ImGui::StyleColorsClassic();
-
-    // Setup Platform/Renderer bindings
-    ImGui_ImplWin32_Init(hwnd);
-    ImGui_ImplDX9_Init(g_pd3dDevice);
-
-    // Load Fonts
-    // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
-    // - AddFontFromFileTTF() will return the ImFont* so you can store it if you need to select the font among multiple.
-    // - If the file cannot be loaded, the function will return NULL. Please handle those errors in your application (e.g. use an assertion, or display an error and quit).
-    // - The fonts will be rasterized at a given size (w/ oversampling) and stored into a texture when calling ImFontAtlas::Build()/GetTexDataAsXXXX(), which ImGui_ImplXXXX_NewFrame below will call.
-    // - Read 'docs/FONTS.md' for more instructions and details.
-    // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
-    //io.Fonts->AddFontDefault();
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", 16.0f);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/ProggyTiny.ttf", 10.0f);
-    //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f, NULL, io.Fonts->GetGlyphRangesJapanese());
-    //IM_ASSERT(font != NULL);
-
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-
-    bool fart;
-
-    // Main loop
-    MSG msg;
-    ZeroMemory(&msg, sizeof(msg));
-    while (msg.message != WM_QUIT)
-    {
-        // Poll and handle messages (inputs, window resize, etc.)
-        // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
-        // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application.
-        // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application.
-        // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
-        if (::PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE))
-        {
-            ::TranslateMessage(&msg);
-            ::DispatchMessage(&msg);
-            continue;
-        }
-
-        // Start the Dear ImGui frame
-        ImGui_ImplDX9_NewFrame();
-        ImGui_ImplWin32_NewFrame();
-        ImGui::NewFrame();
-
-        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to created a named window.
-        {
-            ImGui::Begin("People of color");                          // Create a window called "Hello, world!" and append into it.
-
-        	for(const auto col : player_colors)
-        	{
-                ImGui::Text(cid2color(col.second).c_str());
-                ImGui::SameLine();
-                ImGui::Checkbox("Clear", &fart);
-                ImGui::SameLine();
-                ImGui::Checkbox("Sus", &fart);
-        	}
-            ImGui::End();
-        }
-
-        // Rendering
-        ImGui::EndFrame();
-        g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE);
-        g_pd3dDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-        g_pd3dDevice->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
-        D3DCOLOR clear_col_dx = D3DCOLOR_RGBA((int)(clear_color.x * 255.0f), (int)(clear_color.y * 255.0f), (int)(clear_color.z * 255.0f), (int)(clear_color.w * 255.0f));
-        g_pd3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, clear_col_dx, 1.0f, 0);
-        if (g_pd3dDevice->BeginScene() >= 0)
-        {
-            ImGui::Render();
-            ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
-            g_pd3dDevice->EndScene();
-        }
-        HRESULT result = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
-
-        // Handle loss of D3D9 device
-        if (result == D3DERR_DEVICELOST && g_pd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
-            ResetDevice();
-    }
-
-    ImGui_ImplDX9_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
-
-    CleanupDeviceD3D();
-    ::DestroyWindow(hwnd);
-    ::UnregisterClass(wc.lpszClassName, wc.hInstance);
-
-    return;
+    //oGameData_RemovePlayer = (GameData_RemovePlayerPtr)install_hook(GameData_RemovePlayer, hRemovePlayer);
+    assert(kiero::init(kiero::RenderType::Auto) == kiero::Status::Success);
+    assert(kiero::bind(8, (void**)&oPresent, hkPresent11) == kiero::Status::Success);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule,
@@ -308,6 +408,7 @@ BOOL APIENTRY DllMain(HMODULE hModule,
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
     case DLL_PROCESS_DETACH:
+    default:
         break;
     }
     return TRUE;
